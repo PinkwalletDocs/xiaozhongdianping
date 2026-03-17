@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小众点评 - 链上真实投票的KOL照妖镜</title>
+  <link rel="icon" type="image/webp" href="https://picui.ogmua.cn/s1/2026/03/17/69b9148e41419.webp" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="top-header">
+    <div class="brand-wrap">
+      <img class="brand-logo" src="https://picui.ogmua.cn/s1/2026/03/17/69b9148e41419.webp" alt="小众点评logo" />
+      <strong class="brand-title">小众点评</strong>
+      <nav class="left-nav">
+        <a class="module-link active" href="#kol" data-target="kol">榜单</a>
+        <a class="module-link" href="#vote" data-target="vote">投票</a>
+        <a class="module-link" href="#comment" data-target="comment">爆料</a>
+      </nav>
+    </div>
+
+    <div class="center-tools">
+      <button id="themeToggle" class="theme-toggle" aria-label="切换黑白主题">DAY/NIGHT</button>
+      <div class="search-wrap">
+        <input id="searchInput" type="text" placeholder="搜索KOL名称或推特ID" />
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section id="kol" class="card module-card active">
+      <div class="section-head">
+        <div class="tab-wrap">
+          <button class="tab tab-top active" data-rank="top">Top榜</button>
+          <button class="tab tab-black" data-rank="black">黑榜</button>
+          <button class="tab tab-top" data-rank="new">新晋榜</button>
+        </div>
+      </div>
+      <div id="kolList" class="kol-grid"></div>
+    </section>
+
+    <section id="vote" class="card module-card">
+      <h2>投票系统（1U门槛）</h2>
+      <p class="muted">捐赠1 USDT后解锁1次投票权。投票属于用户观点，平台不做官方定性。</p>
+      <form id="voteForm" class="vote-form">
+        <label>
+          钱包地址
+          <input id="walletInput" type="text" placeholder="0x..." required />
+        </label>
+        <label>
+          目标KOL
+          <select id="kolSelect"></select>
+        </label>
+        <div class="score-grid">
+          <label>可信度 <input type="number" min="1" max="5" name="trust" value="3" required /></label>
+          <label>信息价值 <input type="number" min="1" max="5" name="alpha" value="3" required /></label>
+          <label>胜率 <input type="number" min="1" max="5" name="winRate" value="3" required /></label>
+          <label>风险等级 <input type="number" min="1" max="5" name="risk" value="3" required /></label>
+        </div>
+        <button class="yellow-btn" type="submit">提交评分（Hash存证示意）</button>
+      </form>
+      <div id="voteTips" class="tips"></div>
+    </section>
+
+    <section id="donate" class="card module-card">
+      <h2>捐赠与权益</h2>
+      <div class="rights-grid">
+        <article><h3>1U</h3><p>解锁基础投票权（永久）</p></article>
+        <article><h3>10U</h3><p>预留：高级评论权</p></article>
+        <article><h3>50U</h3><p>预留：举报权 / 仲裁权</p></article>
+      </div>
+      <p class="muted">支持USDT链路：ERC20 / SOL（BRC20可扩展）。</p>
+    </section>
+
+    <section id="submit" class="card module-card">
+      <h2>KOL提交系统（UGC）</h2>
+      <form id="submitForm" class="submit-form">
+        <label>推特链接 <input type="url" id="twitterLink" placeholder="https://x.com/..." required /></label>
+        <label>简介 <input type="text" id="kolDesc" placeholder="写一下该KOL风格" required /></label>
+        <label>标签
+          <select id="kolTag">
+            <option>meme</option>
+            <option>alpha</option>
+            <option>合约</option>
+            <option>带单</option>
+            <option>项目方</option>
+          </select>
+        </label>
+        <label class="checkbox-line"><input type="checkbox" id="isLeadTrade" /> 是否带单</label>
+        <button class="yellow-btn" type="submit">提交到审核队列</button>
+      </form>
+      <p id="submitMsg" class="tips"></p>
+    </section>
+
+    <section id="comment" class="card module-card">
+      <h2>评论 & 爆料系统</h2>
+      <form id="reportForm" class="report-form">
+        <label>人物（推特ID）
+          <input id="reportTwitterId" type="text" placeholder="@twitter_id" required />
+        </label>
+        <label>事件
+          <textarea id="reportEvent" placeholder="描述事件经过、时间线和争议点" required></textarea>
+        </label>
+        <label>证据（图片/视频/文件）
+          <input id="reportEvidence" type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" />
+        </label>
+        <label>可信度
+          <select id="reportCredibility" required>
+            <option value="完全可信">完全可信</option>
+            <option value="存疑">存疑</option>
+            <option value="不可信">不可信</option>
+          </select>
+        </label>
+        <button class="yellow-btn" type="submit">提交爆料</button>
+      </form>
+      <p id="reportMsg" class="tips"></p>
+
+      <article class="report-list-wrap">
+        <h3>最新爆料</h3>
+        <ul id="reportList" class="report-list"></ul>
+      </article>
+
+      <div class="feed-grid">
+        <article>
+          <h3>黑料榜</h3>
+          <ul id="blackFeed"></ul>
+        </article>
+        <article>
+          <h3>神单榜</h3>
+          <ul id="alphaFeed"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="reputation" class="card module-card">
+      <h2>用户信誉系统</h2>
+      <div class="rep-items">
+        <span>新用户</span>
+        <span>已投票用户</span>
+        <span>高信誉用户</span>
+      </div>
+      <p class="muted">评分权重随信誉等级提升，降低女巫攻击影响。</p>
+    </section>
+
+    <section id="risk" class="card module-card">
+      <h2>风险评分模型</h2>
+      <p class="formula">风险指数 = (低可信评分 × 权重) + (爆料数量 × 权重) + (Rug记录 × 权重) - (历史命中率 × 权重)</p>
+      <div class="risk-levels">
+        <span class="green">安全</span>
+        <span class="yellow">中风险</span>
+        <span class="red">高风险</span>
+      </div>
+    </section>
+
+    <section id="anti-cheat" class="card module-card">
+      <h2>反作弊系统</h2>
+      <ul class="plain-list">
+        <li>地址唯一投票限制</li>
+        <li>短时间高频行为预警</li>
+        <li>黑名单地址拦截</li>
+        <li>多签地址识别（预留）</li>
+      </ul>
+    </section>
+
+    <section id="notice" class="card module-card">
+      <h2>风险提示</h2>
+      <ul class="plain-list">
+        <li>所有评分、评论与爆料均为用户观点，不构成投资建议。</li>
+        <li>平台不对KOL进行官方定性，不鼓励网暴与诽谤。</li>
+        <li>恶意提交与伪造证据将被封禁并进入黑名单。</li>
+      </ul>
+    </section>
+  </main>
+
+  <div id="voteModal" class="vote-modal" aria-hidden="true">
+    <div class="vote-modal-panel">
+      <button id="voteModalClose" class="vote-modal-close" aria-label="关闭">×</button>
+      <h3>KOL投票</h3>
+      <p id="modalKolName" class="muted"></p>
+      <form id="voteModalForm" class="vote-form">
+        <input id="modalKolInput" type="hidden" />
+        <label>
+          钱包地址
+          <input id="modalWalletInput" type="text" placeholder="0x..." required />
+        </label>
+        <div class="score-grid">
+          <label>可信度 <input type="number" min="1" max="5" name="trust" value="3" required /></label>
+          <label>信息价值 <input type="number" min="1" max="5" name="alpha" value="3" required /></label>
+          <label>胜率 <input type="number" min="1" max="5" name="winRate" value="3" required /></label>
+          <label>风险等级 <input type="number" min="1" max="5" name="risk" value="3" required /></label>
+        </div>
+        <button class="yellow-btn" type="submit">提交评分</button>
+      </form>
+      <p id="modalVoteTips" class="tips"></p>
+    </div>
+  </div>
+
+  <footer class="bottom-modules">
+    <a class="module-link active" href="#kol" data-target="kol">KOL榜单</a>
+    <a class="module-link" href="#vote" data-target="vote">投票</a>
+    <a class="module-link" href="#donate" data-target="donate">捐赠</a>
+    <a class="module-link" href="#submit" data-target="submit">提交</a>
+    <a class="module-link" href="#comment" data-target="comment">爆料</a>
+    <a class="module-link" href="#reputation" data-target="reputation">信誉</a>
+    <a class="module-link" href="#risk" data-target="risk">风险</a>
+    <a class="module-link" href="#anti-cheat" data-target="anti-cheat">反作弊</a>
+    <a class="module-link" href="#notice" data-target="notice">提示</a>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
