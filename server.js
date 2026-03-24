@@ -10,6 +10,7 @@ const { ethers } = require("ethers");
 const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const cookieParser = require("cookie-parser");
 
 // 始终从 server.js 所在目录加载 .env（不依赖当前工作目录）
 // Vercel：环境变量在控制台配置，不会上传 .env；勿依赖本地文件
@@ -68,8 +69,53 @@ function twitterUsernameFromSession(tw) {
   return u;
 }
 
+const TW_USER_COOKIE = "tw_user";
+const TW_OAUTH_VERIFIER = "tw_oauth_v";
+const TW_OAUTH_STATE = "tw_oauth_s";
+
+function cookieBaseOpts() {
+  const secure = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    signed: true,
+    sameSite: "lax",
+    secure,
+    path: "/"
+  };
+}
+
+function getTwitterUserFromRequest(req) {
+  const fromSession = req.session?.twitterUser;
+  if (fromSession && typeof fromSession === "object" && fromSession.username != null) return fromSession;
+  const raw = req.signedCookies?.[TW_USER_COOKIE];
+  if (!raw || typeof raw !== "string") return null;
+  try {
+    const u = JSON.parse(raw);
+    if (u && typeof u.username === "string") return u;
+  } catch (_e) {}
+  return null;
+}
+
+function setTwitterUserCookie(res, user) {
+  res.cookie(TW_USER_COOKIE, JSON.stringify(user), {
+    ...cookieBaseOpts(),
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  });
+}
+
+function clearTwitterUserCookie(res) {
+  const o = cookieBaseOpts();
+  res.clearCookie(TW_USER_COOKIE, { path: o.path, httpOnly: o.httpOnly, sameSite: o.sameSite, secure: o.secure });
+}
+
+function clearTwitterOAuthCookies(res) {
+  const o = cookieBaseOpts();
+  res.clearCookie(TW_OAUTH_VERIFIER, { path: o.path, httpOnly: o.httpOnly, sameSite: o.sameSite, secure: o.secure });
+  res.clearCookie(TW_OAUTH_STATE, { path: o.path, httpOnly: o.httpOnly, sameSite: o.sameSite, secure: o.secure });
+}
+
 function isTwitterAdminSession(req) {
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   const u = twitterUsernameFromSession(tw);
   return Boolean(u && getAdminTwitterHandleSet().has(u));
 }
@@ -123,6 +169,7 @@ const CHAIN_CONFIG = {
 
 const TREASURY_WALLET = (process.env.TREASURY_WALLET || "").toLowerCase();
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const COOKIE_SECRET = process.env.SESSION_SECRET || JWT_SECRET;
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASSWORD_HASH =
   process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(process.env.ADMIN_PASSWORD || "admin123", 10);
@@ -143,6 +190,7 @@ const upload = multer({
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+app.use(cookieParser(COOKIE_SECRET));
 app.use(
   session({
     secret: process.env.SESSION_SECRET || JWT_SECRET,
@@ -322,7 +370,32 @@ function initDb() {
 }
 
 function seedKols() {
-  // KOL data source is DB-only.
+  try {
+    const currentCount = Number(db.prepare("SELECT COUNT(*) AS c FROM kols").get()?.c || 0);
+    if (currentCount > 0) return;
+    const seedPath = path.join(__dirname, "kol-seed.json");
+    if (!fs.existsSync(seedPath)) return;
+    const raw = fs.readFileSync(seedPath, "utf8");
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || !arr.length) return;
+    const insert = db.prepare(
+      "INSERT OR IGNORE INTO kols (handle, display_name, twitter_uid, followers, tags, intro, is_lead_trade) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    const tx = db.transaction((items) => {
+      for (const it of items) {
+        const handle = String(it?.handle || "")
+          .replace(/^@/, "")
+          .trim();
+        if (!handle) continue;
+        const uid = String(it?.uid || `@${handle}`).trim() || `@${handle}`;
+        const followers = Math.max(0, Number(it?.followers || 0) || 0);
+        const tags = String(it?.tags || "").trim();
+        const intro = String(it?.intro || "").trim();
+        insert.run(handle, "", uid, followers, tags, intro, Number(it?.is_lead_trade ? 1 : 0));
+      }
+    });
+    tx(arr);
+  } catch (_e) {}
 }
 
 /** 曾错误地把 handle 写进 display_name，与 X 上「用户名≠id」矛盾，需清空待接口写回真昵称 */
@@ -390,7 +463,7 @@ function authAdmin(req, res, next) {
     }
   }
   if (isTwitterAdminSession(req)) {
-    const tw = req.session.twitterUser;
+    const tw = getTwitterUserFromRequest(req);
     req.admin = { username: `x:${twitterUsernameFromSession(tw)}`, via: "twitter" };
     return next();
   }
@@ -947,12 +1020,13 @@ app.get("/api/auth/twitter", (req, res) => {
     return res.status(503).json({ error: "Twitter login not configured" });
   }
   const verifier = generateCodeVerifier();
-  req.session.codeVerifier = verifier;
+  const o = cookieBaseOpts();
+  res.cookie(TW_OAUTH_VERIFIER, verifier, { ...o, maxAge: 10 * 60 * 1000 });
   const challenge = base64url(sha256(Buffer.from(verifier)));
   const redirectUri = `${BASE_URL.replace(/\/$/, "")}/api/auth/twitter/callback`;
   const scope = "tweet.read users.read offline.access";
   const state = crypto.randomBytes(16).toString("base64url");
-  req.session.authState = state;
+  res.cookie(TW_OAUTH_STATE, state, { ...o, maxAge: 10 * 60 * 1000 });
   const url = `https://x.com/i/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(TWITTER_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
   res.redirect(url);
 });
@@ -962,13 +1036,13 @@ app.get("/api/auth/twitter/callback", async (req, res) => {
     return res.redirect("/#kol");
   }
   const { code, state } = req.query || {};
-  const storedState = req.session?.authState;
-  const verifier = req.session?.codeVerifier;
-  if (!code || state !== storedState || !verifier) {
+  const storedState = req.signedCookies?.[TW_OAUTH_STATE];
+  const verifier = req.signedCookies?.[TW_OAUTH_VERIFIER];
+  if (!code || !state || state !== storedState || !verifier) {
+    clearTwitterOAuthCookies(res);
     return res.redirect("/#kol");
   }
-  delete req.session.authState;
-  delete req.session.codeVerifier;
+  clearTwitterOAuthCookies(res);
 
   const redirectUri = `${BASE_URL.replace(/\/$/, "")}/api/auth/twitter/callback`;
   const body = new URLSearchParams({
@@ -1016,18 +1090,19 @@ app.get("/api/auth/twitter/callback", async (req, res) => {
     .toLowerCase();
   const followers = Number(u?.public_metrics?.followers_count ?? 0);
 
-  req.session.twitterUser = {
+  const twitterUser = {
     handle: handle ? `@${handle}` : "",
     username: handle,
     name: u.name || handle,
     profileImageUrl: u.profile_image_url || "",
     followers
   };
+  setTwitterUserCookie(res, twitterUser);
   res.redirect("/#kol");
 });
 
 app.get("/api/auth/me", (req, res) => {
-  const user = req.session?.twitterUser;
+  const user = getTwitterUserFromRequest(req);
   if (!user) return res.json({ loggedIn: false });
   const isAdmin = isTwitterAdminSession(req);
   const followersNum = Number(user.followers) || 0;
@@ -1045,8 +1120,15 @@ app.get("/api/auth/me", (req, res) => {
 });
 
 app.post("/api/auth/logout", (req, res) => {
-  req.session.destroy(() => {});
-  res.json({ ok: true });
+  clearTwitterUserCookie(res);
+  if (req.session) {
+    delete req.session.twitterUser;
+    req.session.destroy(() => {
+      res.json({ ok: true });
+    });
+  } else {
+    res.json({ ok: true });
+  }
 });
 
 app.get("/api/avatar/:handle", async (req, res) => {
@@ -1176,7 +1258,7 @@ app.get("/api/kols/:handle/votes", async (req, res) => {
   const likeCounts = {};
   const dislikeCounts = {};
   const myReactions = {};
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   const myWallet = tw ? `twitter:${(tw.username || tw.handle?.replace(/^@/, "") || "").toLowerCase()}` : null;
 
   if (voteIds.length) {
@@ -1267,7 +1349,7 @@ app.get("/api/kols/:handle/votes", async (req, res) => {
 app.post("/api/votes/:id/react", (req, res) => {
   const voteId = Number(req.params.id);
   const { reaction } = req.body || {};
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   if (!tw) return res.status(401).json({ error: "请先登录 X（推特）" });
   const wallet = `twitter:${(tw.username || tw.handle?.replace(/^@/, "") || "").toLowerCase()}`;
   const r = Number(reaction);
@@ -1293,7 +1375,7 @@ app.post("/api/votes/:id/react", (req, res) => {
 app.post("/api/votes/:id/replies", (req, res) => {
   const voteId = Number(req.params.id);
   const { content } = req.body || {};
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   if (!tw) return res.status(401).json({ error: "请先登录 X（推特）" });
   const wallet = `twitter:${(tw.username || tw.handle?.replace(/^@/, "") || "").toLowerCase()}`;
   const text = (content || "").toString().trim();
@@ -1341,7 +1423,7 @@ app.get("/api/users/:wallet/eligibility", (req, res) => {
 
 app.post("/api/votes", (req, res) => {
   const { kolHandle, comment = "", scores = {} } = req.body || {};
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   if (!tw) return res.status(401).json({ error: "请先登录 X（推特）" });
   const isAdmin = isTwitterAdminSession(req);
   if (!isAdmin && tw.followers < MIN_FOLLOWERS_TO_VOTE) {
@@ -1551,7 +1633,7 @@ app.get("/api/exposes/:id/comments", (req, res) => {
 
 app.post("/api/exposes/:id/comments", (req, res) => {
   const exposeId = Number(req.params.id);
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   if (!tw) return res.status(401).json({ error: "请先登录 X（推特）" });
   const wallet = `twitter:${(tw.username || tw.handle?.replace(/^@/, "") || "").toLowerCase()}`;
   const text = String(req.body?.content || "").trim();
@@ -1574,7 +1656,7 @@ app.post("/api/exposes/:id/view", (req, res) => {
 
 app.post("/api/exposes/:id/react", (req, res) => {
   const exposeId = Number(req.params.id);
-  const tw = req.session?.twitterUser;
+  const tw = getTwitterUserFromRequest(req);
   if (!tw) return res.status(401).json({ error: "请先登录 X（推特）" });
   if (!exposeId) return res.status(400).json({ error: "invalid expose id" });
   const wallet = `twitter:${(tw.username || tw.handle?.replace(/^@/, "") || "").toLowerCase()}`;

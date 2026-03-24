@@ -1,11 +1,14 @@
 {
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "functions": {
-    "index.js": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "includeFiles": "public/**"
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://xiaozhong-api-production.up.railway.app/api/$1"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "https://xiaozhong-api-production.up.railway.app/uploads/$1"
     }
-  }
+  ]
 }

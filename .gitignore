@@ -6,3 +6,5 @@ public/
 Thumbs.db
 data.db
 .env
+
+.vercel

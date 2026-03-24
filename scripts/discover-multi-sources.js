@@ -11,7 +11,13 @@ const Database = require("better-sqlite3");
 const SOURCE_HANDLES = ["binancezh", "heyibinance", "cz_binance"];
 const MIN_FOLLOWERS = Number(process.env.MIN_FOLLOWERS) || 500;
 const TARGET_KOLS = 1000;
-const DB_PATH = path.join(__dirname, "..", "data", "app.db");
+function resolveDataDir() {
+  if (process.env.DATA_DIR && String(process.env.DATA_DIR).trim()) {
+    return path.resolve(String(process.env.DATA_DIR).trim());
+  }
+  return path.join(__dirname, "..", "data");
+}
+const DB_PATH = path.join(resolveDataDir(), "app.db");
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RAPIDAPI_TWITTER_HOST =
   process.env.RAPIDAPI_TWITTER_HOST || "twittr-v2-fastest-twitter-x-api-150k-requests-for-15.p.rapidapi.com";

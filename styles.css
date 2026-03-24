@@ -336,6 +336,7 @@ h2 {
   background: var(--bg);
   position: relative;
   padding-bottom: 48px;
+  overflow: hidden;
 }
 
 .kol-item-pinned {
@@ -455,6 +456,7 @@ h2 {
   right: 10px;
   bottom: 10px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
@@ -1310,6 +1312,7 @@ body.dark .bottom-modules a {
   .header-row {
     gap: 6px;
     min-height: 36px;
+    flex-wrap: wrap;
   }
 
   .brand-title {
@@ -1323,8 +1326,20 @@ body.dark .bottom-modules a {
 
   .theme-toggle,
   .lang-toggle {
-    padding: 5px 10px;
+    padding: 5px 8px;
     font-size: 11px;
+  }
+
+  .x-login-btn {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+
+  .header-right {
+    width: 100%;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 
   .center-tools {
@@ -1336,18 +1351,58 @@ body.dark .bottom-modules a {
   }
 
   .page {
-    width: 94%;
+    width: 100%;
+    padding: 0 8px;
     margin: 12px auto 80px;
   }
 
   .card {
     min-height: auto;
     padding: 12px;
+    border-radius: 14px;
   }
 
   .tab {
-    padding: 8px 12px;
-    font-size: 15px;
+    padding: 7px 10px;
+    font-size: 14px;
+  }
+
+  .report-list {
+    grid-template-columns: 1fr;
+  }
+
+  .expose-cover {
+    height: 180px;
+  }
+
+  .kol-item {
+    padding-bottom: 10px;
+  }
+
+  .kol-actions {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    margin-top: 10px;
+    gap: 6px;
+    justify-content: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .kol-reviews-btn,
+  .kol-vote-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .kol-no-review-sign {
+    right: 8px;
+    bottom: 8px;
   }
 
   .kol-grid {

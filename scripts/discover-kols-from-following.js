@@ -11,12 +11,19 @@ require("dotenv").config();
 const path = require("path");
 const Database = require("better-sqlite3");
 
-const DB_PATH = path.join(__dirname, "..", "data", "app.db");
+function resolveDataDir() {
+  if (process.env.DATA_DIR && String(process.env.DATA_DIR).trim()) {
+    return path.resolve(String(process.env.DATA_DIR).trim());
+  }
+  return path.join(__dirname, "..", "data");
+}
+const DB_PATH = path.join(resolveDataDir(), "app.db");
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RAPIDAPI_TWITTER_HOST =
   process.env.RAPIDAPI_TWITTER_HOST || "twittr-v2-fastest-twitter-x-api-150k-requests-for-15.p.rapidapi.com";
 const RAPIDAPI_FOLLOWING_HOST = process.env.RAPIDAPI_FOLLOWING_HOST || RAPIDAPI_TWITTER_HOST;
 const RAPIDAPI_TWITTER_X_HOST = process.env.RAPIDAPI_TWITTER_X_HOST || "twitter-x.p.rapidapi.com";
+const RAPIDAPI_FOLLOWERS_HOST = process.env.RAPIDAPI_FOLLOWERS_HOST || "twitter-social.p.rapidapi.com";
 
 const CN_REG = /[\u4e00-\u9fff]/;
 const TOPIC_REG =
@@ -37,6 +44,9 @@ function isPolitical(s) {
 }
 
 const ENABLE_RELAXED = process.env.DISCOVER_RELAXED === "1";
+const MIN_FOLLOWERS = Number(process.env.DISCOVER_MIN_FOLLOWERS || 1000);
+const TARGET_TOTAL = Number(process.env.DISCOVER_TARGET_TOTAL || 220);
+const MAX_USERS_PER_SOURCE = Number(process.env.DISCOVER_MAX_USERS_PER_SOURCE || 80);
 
 function isQualified(user, tweetsText = "") {
   const name = user?.legacy?.name || user?.name || "";
@@ -91,6 +101,21 @@ function saveHandleToId(handle, restId) {
   } catch (_e) {}
 }
 
+function loadHandleToIdCache() {
+  try {
+    const rows = dbCache.prepare("SELECT handle, rest_id FROM handle_id_cache").all();
+    const out = {};
+    for (const r of rows) {
+      const h = String(r?.handle || "").toLowerCase();
+      const id = String(r?.rest_id || "").trim();
+      if (h && id) out[h] = id;
+    }
+    return out;
+  } catch (_e) {
+    return {};
+  }
+}
+
 async function getUserByUsername(handle) {
   const res = await fetchRapid(
     `https://${RAPIDAPI_TWITTER_HOST}/user/by/username/${encodeURIComponent(handle)}`
@@ -136,7 +161,7 @@ async function getUserTweets(userId, limit = 20) {
   return texts.filter(Boolean).join(" ");
 }
 
-async function getFollowing(handleOrId) {
+async function getFollowing(handleOrId, usernameHint = "") {
   const h = encodeURIComponent(handleOrId);
   const host = RAPIDAPI_FOLLOWING_HOST;
   const twitterXHost = RAPIDAPI_TWITTER_X_HOST;
@@ -191,11 +216,42 @@ async function getFollowing(handleOrId) {
     } catch (_e) {}
     await new Promise((r) => setTimeout(r, 200));
   }
+  // Fallback: use followers endpoint (some providers block following endpoint).
+  // We still treat these discovered accounts as social-neighborhood candidates.
+  if (RAPIDAPI_FOLLOWERS_HOST && usernameHint) {
+    try {
+      const url = `https://${RAPIDAPI_FOLLOWERS_HOST}/api/v1/twitter/user/followers?username=${encodeURIComponent(usernameHint)}&count=100`;
+      const res = await fetch(url, {
+        headers: {
+          "x-rapidapi-key": RAPIDAPI_KEY,
+          "x-rapidapi-host": RAPIDAPI_FOLLOWERS_HOST
+        }
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const users = data?.body || data?.users || data?.followers || [];
+        if (Array.isArray(users) && users.length) {
+          return users.map((u) =>
+            u?.legacy
+              ? u
+              : {
+                  legacy: {
+                    screen_name: u.username || u.screen_name,
+                    name: u.name,
+                    description: u.description || u.bio || "",
+                    followers_count: u.followers_count ?? u.followersCount ?? 0
+                  },
+                  ...u
+                }
+          );
+        }
+      }
+    } catch (_e) {}
+  }
   return [];
 }
 
 const MAX_SEED_SOURCES = 3;
-const MAX_USERS_PER_SOURCE = 50;
 
 async function bootstrapAndDiscoverFromSeed(db, insertKol, seen) {
   let added = 0;
@@ -228,11 +284,16 @@ async function bootstrapAndDiscoverFromSeed(db, insertKol, seen) {
           await new Promise((r) => setTimeout(r, 400));
         }
       }
+      const nameForCheck = userForCheck?.legacy?.name || userForCheck?.name || "";
+      const followersForCheck = Number(userForCheck?.legacy?.followers_count ?? userForCheck?.followers_count ?? 0);
+      if (!hasChinese(nameForCheck)) continue;
+      if (followersForCheck < MIN_FOLLOWERS) continue;
       if (!isQualified(userForCheck, tweetsText)) continue;
       const intro = (userForCheck?.legacy?.description || "").slice(0, 500);
       const name = userForCheck?.legacy?.name || "";
-      insertKol.run(handle, `@${handle}`, intro || name || "", "discovered");
+      insertKol.run(handle, name || "", `@${handle}`, followersForCheck, intro || name || "", "discovered");
       added++;
+      if (db.prepare("SELECT COUNT(*) AS c FROM kols").get().c >= TARGET_TOTAL) return added;
     }
     await new Promise((r) => setTimeout(r, 600));
   }
@@ -245,7 +306,7 @@ async function discoverKolsFromFollowing() {
   }
   const db = new Database(DB_PATH);
   const insertKol = db.prepare(
-    "INSERT OR IGNORE INTO kols (handle, twitter_uid, intro, tags) VALUES (?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO kols (handle, display_name, twitter_uid, followers, intro, tags) VALUES (?, ?, ?, ?, ?, ?)"
   );
   const seen = new Set();
   let added = 0;
@@ -260,7 +321,7 @@ async function discoverKolsFromFollowing() {
       let userId = user?.rest_id || user?.id || handleToId[kol.handle.toLowerCase()];
       if (!userId) userId = handleToId[kol.handle.toLowerCase()];
       if (!userId && /^\d+$/.test(kol.handle)) userId = kol.handle;
-      const following = userId ? await getFollowing(userId) : [];
+      const following = userId ? await getFollowing(userId, kol.handle) : [];
       if (!Array.isArray(following) || following.length === 0) continue;
 
       for (const fu of following) {
@@ -291,6 +352,12 @@ async function discoverKolsFromFollowing() {
           }
         }
 
+        const nameForCheck = userForCheck?.legacy?.name || userForCheck?.name || "";
+        const followersForCheck = Number(userForCheck?.legacy?.followers_count ?? userForCheck?.followers_count ?? 0);
+        if (!hasChinese(nameForCheck) || followersForCheck < MIN_FOLLOWERS) {
+          skipped++;
+          continue;
+        }
         if (!isQualified(userForCheck, tweetsText)) {
           skipped++;
           continue;
@@ -298,9 +365,11 @@ async function discoverKolsFromFollowing() {
 
         const intro = (userForCheck?.legacy?.description || userForCheck?.description || "").slice(0, 500);
         const name = userForCheck?.legacy?.name || userForCheck?.name || "";
-        insertKol.run(handle, `@${handle}`, intro || name || "", "discovered");
+        insertKol.run(handle, name || "", `@${handle}`, followersForCheck, intro || name || "", "discovered");
         added++;
+        if (db.prepare("SELECT COUNT(*) AS c FROM kols").get().c >= TARGET_TOTAL) break;
       }
+      if (db.prepare("SELECT COUNT(*) AS c FROM kols").get().c >= TARGET_TOTAL) break;
     } catch (e) {
       console.warn(`Skip ${kol.handle}:`, e.message);
     }
@@ -308,7 +377,7 @@ async function discoverKolsFromFollowing() {
   }
 
   db.close();
-  return { ok: true, added, skipped, totalProcessed: kols.length };
+  return { ok: true, added, skipped, totalProcessed: kols.length, minFollowers: MIN_FOLLOWERS, targetTotal: TARGET_TOTAL };
 }
 
 module.exports = { discoverKolsFromFollowing, isQualified, hasChinese, isTopicRelevant, isPolitical };
