@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "discover-kols": "node scripts/discover-kols-from-following.js",
-    "build": "node scripts/build-dist.js"
+    "build": "node scripts/build-dist.js",
+    "postinstall": "node scripts/postinstall-native.js"
   },
   "repository": {
     "type": "git",
@@ -17,6 +18,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "bugs": {
     "url": "https://github.com/MemeWillContinue/xiaozhongdianping/issues"
   },
