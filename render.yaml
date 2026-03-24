@@ -1,0 +1,37 @@
+# Render Blueprint：连接 GitHub 后一键创建 Web Service
+# 说明：https://render.com/docs/infrastructure-as-code
+# 持久盘需付费实例；若只用免费实例，可删掉 disk 段（SQLite 重启后可能丢失，仅适合试跑）
+
+services:
+  - type: web
+    name: xiaozhong-api
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: DATA_DIR
+        value: /var/data
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: TWITTER_CLIENT_ID
+        sync: false
+      - key: TWITTER_CLIENT_SECRET
+        sync: false
+      # 填你的 Vercel 前端地址，例如 https://xxx.vercel.app（OAuth 回调依赖此值）
+      - key: BASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_TWITTER_HANDLES
+        sync: false
+    disk:
+      name: xiaozhong-data
+      mountPath: /var/data
+      sizeGB: 1

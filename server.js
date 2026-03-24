@@ -75,14 +75,29 @@ function isTwitterAdminSession(req) {
 }
 
 const app = express();
-if (process.env.VERCEL) {
+if (process.env.VERCEL || process.env.RENDER) {
   app.set("trust proxy", 1);
 }
 const PORT = Number(process.env.PORT || 3001);
-// Vercel Serverless 文件系统：项目目录通常只读，SQLite/上传必须写到 /tmp（数据仍不保证跨实例持久）
+// Vercel Serverless：项目目录只读，SQLite/上传写到 /tmp（数据不保证持久）
+// Render 等：可通过环境变量 DATA_DIR / UPLOAD_DIR 指向持久盘挂载路径（见 render.yaml）
 const IS_VERCEL = Boolean(process.env.VERCEL);
-const DATA_DIR = IS_VERCEL ? path.join("/tmp", "xiaozhong-data") : path.join(__dirname, "data");
-const UPLOAD_DIR = IS_VERCEL ? path.join("/tmp", "xiaozhong-uploads") : path.join(__dirname, "uploads");
+function resolveDataDir() {
+  if (process.env.DATA_DIR && String(process.env.DATA_DIR).trim()) {
+    return path.resolve(String(process.env.DATA_DIR).trim());
+  }
+  if (IS_VERCEL) return path.join("/tmp", "xiaozhong-data");
+  return path.join(__dirname, "data");
+}
+function resolveUploadDir() {
+  if (process.env.UPLOAD_DIR && String(process.env.UPLOAD_DIR).trim()) {
+    return path.resolve(String(process.env.UPLOAD_DIR).trim());
+  }
+  if (IS_VERCEL) return path.join("/tmp", "xiaozhong-uploads");
+  return path.join(__dirname, "uploads");
+}
+const DATA_DIR = resolveDataDir();
+const UPLOAD_DIR = resolveUploadDir();
 const DB_PATH = path.join(DATA_DIR, "app.db");
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
