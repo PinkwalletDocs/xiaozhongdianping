@@ -1706,14 +1706,17 @@ app.post("/api/admin/blacklist", authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// 本地：从 dist/ 提供前端。Vercel：静态由仓库根目录 public/ 经 CDN 提供（express.static 在 Vercel 上对 Express 不生效，见官方文档）。
+// 本地：dist/。Vercel：构建生成的 public/（见 npm run build）。无静态中间件时 GET / 会落到 Express 默认处理 → “Cannot GET /”。
 const distDir = path.join(__dirname, "dist");
-if (!process.env.VERCEL) {
-  if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir));
-  } else {
-    app.use(express.static(__dirname));
+const publicDir = path.join(__dirname, "public");
+if (process.env.VERCEL) {
+  if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir, { index: "index.html", maxAge: "1h" }));
   }
+} else if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+} else {
+  app.use(express.static(__dirname));
 }
 
 if (require.main === module) {

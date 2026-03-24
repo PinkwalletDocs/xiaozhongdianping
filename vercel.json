@@ -4,7 +4,8 @@
   "functions": {
     "index.js": {
       "maxDuration": 60,
-      "memory": 1024
+      "memory": 1024,
+      "includeFiles": "public/**"
     }
   }
 }
